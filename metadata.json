@@ -1,0 +1,5 @@
+{
+  "name": "Gerador de Treinos com IA",
+  "description": "Uma aplicação web sofisticada que gera planos de treino personalizados usando a API Gemini, adaptados às suas metas, nível de experiência e equipamentos disponíveis.",
+  "requestFramePermissions": []
+}
