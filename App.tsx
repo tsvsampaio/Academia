@@ -8,11 +8,14 @@ import WorkoutDisplay from './components/WorkoutDisplay';
 import LoadingSpinner from './components/LoadingSpinner';
 import Footer from './components/Footer';
 import BodyAnalysis from './components/BodyAnalysis';
+import WorkoutHistory from './components/WorkoutHistory';
 
 type AppStep = 'analysis' | 'form' | 'loading' | 'result' | 'error';
+type AppView = 'main' | 'history';
 
 const App: React.FC = () => {
   const [currentStep, setCurrentStep] = useState<AppStep>('analysis');
+  const [view, setView] = useState<AppView>('main');
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [suggestedGoals, setSuggestedGoals] = useState<FitnessGoal[]>([]);
@@ -45,9 +48,14 @@ const App: React.FC = () => {
     setSuggestedGoals([]);
     setGender(null);
     setCurrentStep('analysis');
+    setView('main');
   }
   
   const renderContent = () => {
+    if (view === 'history') {
+      return <WorkoutHistory onBack={() => setView('main')} />;
+    }
+
     switch(currentStep) {
       case 'analysis':
         return <BodyAnalysis onComplete={handleAnalysisComplete} />;
@@ -77,7 +85,7 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
-      <Header />
+      <Header onShowHistory={() => setView('history')} />
       <main className="flex-grow container mx-auto px-4 py-8 md:py-12 flex flex-col items-center justify-center">
         {renderContent()}
       </main>

@@ -1,5 +1,5 @@
-import React from 'react';
-import { WorkoutPlan, WorkoutDay, Exercise } from '../types';
+import React, { useState } from 'react';
+import { WorkoutPlan, WorkoutDay, Exercise, WorkoutHistoryEntry } from '../types';
 
 // Declara a variável global jspdf injetada pelo script da CDN
 declare const jspdf: any;
@@ -9,7 +9,53 @@ interface WorkoutDisplayProps {
   onReset: () => void;
 }
 
+type FeedbackState = { [dayId: string]: string };
+
 const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({ plan, onReset }) => {
+  const [dailyFeedback, setDailyFeedback] = useState<FeedbackState>(() => {
+    try {
+      const savedFeedback = localStorage.getItem(`feedback-${plan.nomeDoPlano}`);
+      return savedFeedback ? JSON.parse(savedFeedback) : {};
+    } catch (e) {
+      console.error("Erro ao carregar feedback do localStorage", e);
+      return {};
+    }
+  });
+
+  const handleDayComplete = (day: WorkoutDay, feedback: string) => {
+    // 1. Atualiza o estado local para a UI da visualização atual
+    const newFeedbackState = { ...dailyFeedback, [day.dia]: feedback };
+    setDailyFeedback(newFeedbackState);
+
+    // 2. Salva o feedback específico do plano para persistência imediata na UI
+    try {
+      localStorage.setItem(`feedback-${plan.nomeDoPlano}`, JSON.stringify(newFeedbackState));
+    } catch (e) {
+      console.error("Erro ao salvar feedback no localStorage", e);
+    }
+
+    // 3. Salva no histórico global
+    try {
+      const historyEntry: WorkoutHistoryEntry = {
+        id: `${plan.nomeDoPlano}-${day.dia}-${new Date().toISOString()}`,
+        planName: plan.nomeDoPlano,
+        workoutDay: day,
+        feedback: feedback,
+        completedAt: new Date().toISOString(),
+      };
+
+      const existingHistoryRaw = localStorage.getItem('workoutHistory');
+      const existingHistory: WorkoutHistoryEntry[] = existingHistoryRaw ? JSON.parse(existingHistoryRaw) : [];
+      
+      const updatedHistory = [...existingHistory, historyEntry];
+      localStorage.setItem('workoutHistory', JSON.stringify(updatedHistory));
+
+    } catch (e) {
+      console.error("Erro ao salvar no histórico de treinos", e);
+    }
+  };
+
+
   const handleGeneratePdf = () => {
     const { jsPDF } = jspdf;
     const doc = new jsPDF();
@@ -18,16 +64,24 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({ plan, onReset }) => {
     const addText = (text: string, x: number, yPos: number, options: any = {}, maxWidth = 180) => {
         const lines = doc.splitTextToSize(text, maxWidth);
         doc.text(lines, x, yPos, options);
-        return yPos + (lines.length * 5); // Retorna a nova posição Y
+        // Calcula a altura do texto com base no número de linhas e tamanho da fonte atual
+        const lineHeight = doc.getLineHeight(text) / doc.internal.scaleFactor;
+        return yPos + (lines.length * lineHeight) - ((lines.length -1) * 3); // Ajuste fino para espaçamento
     };
     
-    // Página de Rosto
+    // Página de Rosto (Conforme imagem)
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(26);
-    doc.text(plan.nomeDoPlano, 105, 140, { align: 'center' });
+    doc.setFontSize(38);
+    doc.setTextColor(0, 0, 0); // Texto preto
+    let yTitle = addText(plan.nomeDoPlano, 105, 140, { align: 'center' }, 160);
+    
+    yTitle += 2; // Pequeno espaço
+
     doc.setFontSize(14);
     doc.setFont('helvetica', 'normal');
-    doc.text("Seu plano de treino personalizado", 105, 150, { align: 'center' });
+    doc.setTextColor(128, 128, 128); // Texto cinza para o subtítulo
+    doc.text("Seu plano de treino personalizado", 105, yTitle, { align: 'center' });
+    doc.setTextColor(0, 0, 0); // Reseta a cor do texto para o padrão
 
 
     plan.dias.forEach((day) => {
@@ -128,27 +182,52 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({ plan, onReset }) => {
 
     const tableX = 15;
     const tableY = y;
-    const rowHeight = 20;
-    const colWidth = 25;
-    
+    const rowHeight = 25;
+    const colWidth = 26;
+
+    // Cabeçalho da tabela (Conforme imagem)
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    
     weekDays.forEach((day, index) => {
       const cellX = tableX + (index * colWidth);
-      doc.rect(cellX, tableY, colWidth, rowHeight);
-      doc.text(day, cellX + colWidth / 2, tableY + 7, { align: 'center' });
+      if (index === 0) { // Segunda
+        doc.setFillColor(230, 230, 230); // Fundo cinza claro
+        doc.setTextColor(0, 0, 0);       // Texto preto
+      } else { // Resto da semana
+        doc.setFillColor(0, 0, 0);       // Fundo preto
+        doc.setTextColor(255, 255, 255); // Texto branco
+      }
+      doc.rect(cellX, tableY, colWidth, rowHeight / 2, 'FD');
+      doc.text(day, cellX + colWidth / 2, tableY + 8, { align: 'center' });
     });
 
+    // Corpo da tabela
+    doc.setTextColor(0, 0, 0); // Reseta a cor do texto para o corpo
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-     weeklySchedule.forEach((foco, index) => {
-      const cellX = tableX + (index * colWidth);
-      const contentY = tableY + rowHeight + 12;
-      doc.rect(cellX, tableY + rowHeight, colWidth, rowHeight);
-      const lines = doc.splitTextToSize(foco, colWidth - 2);
-      doc.text(lines, cellX + colWidth / 2, contentY, { align: 'center' });
+    weeklySchedule.forEach((foco, index) => {
+        const cellX = tableX + (index * colWidth);
+        const cellY = tableY + rowHeight / 2;
+        const isRestDay = foco === 'Descanso';
+
+        // Define cores baseadas se é dia de treino ou descanso
+        if (isRestDay) {
+            doc.setFillColor(245, 245, 245); // Cinza bem claro para descanso
+            doc.setTextColor(150, 150, 150); // Texto cinza para descanso
+        } else {
+            doc.setFillColor(224, 255, 255); // Ciano claro para treino
+            doc.setTextColor(0, 0, 0);       // Texto preto para treino
+        }
+        
+        doc.rect(cellX, cellY, colWidth, rowHeight, 'FD'); // Desenha a célula com preenchimento
+
+        // Ajusta o texto para caber na célula
+        const lines = doc.splitTextToSize(foco, colWidth - 4); // Margem interna
+        const textVOffset = lines.length > 1 ? 8 : 12; // Ajuste vertical para 1 ou 2 linhas
+        doc.text(lines, cellX + colWidth / 2, cellY + textVOffset, { align: 'center' });
     });
+
+    doc.setTextColor(0,0,0); // Reseta a cor do texto para o padrão
     
     // Adicionar cabeçalho e rodapé a todas as páginas
     const pageCount = doc.getNumberOfPages();
@@ -181,7 +260,13 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({ plan, onReset }) => {
 
       <div className="space-y-8">
         {plan.dias.map((day, index) => (
-          <WorkoutDayCard key={index} day={day} dayNumber={index + 1} />
+          <WorkoutDayCard 
+            key={index} 
+            day={day} 
+            dayNumber={index + 1}
+            feedback={dailyFeedback[day.dia]}
+            onDayComplete={(feedback) => handleDayComplete(day, feedback)}
+          />
         ))}
       </div>
       
@@ -205,7 +290,16 @@ const WorkoutDisplay: React.FC<WorkoutDisplayProps> = ({ plan, onReset }) => {
   );
 };
 
-const WorkoutDayCard: React.FC<{ day: WorkoutDay, dayNumber: number }> = ({ day, dayNumber }) => {
+interface WorkoutDayCardProps {
+  day: WorkoutDay;
+  dayNumber: number;
+  feedback?: string;
+  onDayComplete: (feedback: string) => void;
+}
+
+const WorkoutDayCard: React.FC<WorkoutDayCardProps> = ({ day, dayNumber, feedback, onDayComplete }) => {
+  const [showFeedbackOptions, setShowFeedbackOptions] = useState(false);
+
   return (
     <div className="bg-gray-800/60 backdrop-blur-md border border-gray-700 rounded-2xl p-6 shadow-lg">
       <div className="flex items-center mb-4">
@@ -215,6 +309,7 @@ const WorkoutDayCard: React.FC<{ day: WorkoutDay, dayNumber: number }> = ({ day,
         <div>
           <h3 className="text-2xl font-bold text-white">{day.dia}: <span className="text-cyan-400">{day.foco}</span></h3>
         </div>
+        {feedback && <CheckCircleIcon className="w-7 h-7 text-green-400 ml-auto" />}
       </div>
       
       <div className="space-y-6">
@@ -246,9 +341,52 @@ const WorkoutDayCard: React.FC<{ day: WorkoutDay, dayNumber: number }> = ({ day,
 
         <WorkoutSection title="Resfriamento" content={day.resfriamento} icon={<SnowflakeIcon />} />
       </div>
+
+      <div className="mt-6 pt-6 border-t border-gray-700 text-center">
+        {feedback ? (
+          <p className="text-lg text-green-400 font-semibold italic">
+            Dia finalizado! Seu feedback: "{feedback}"
+          </p>
+        ) : showFeedbackOptions ? (
+          <FeedbackSelector onSelect={(f) => {
+            onDayComplete(f);
+            setShowFeedbackOptions(false);
+          }} />
+        ) : (
+          <button
+            onClick={() => setShowFeedbackOptions(true)}
+            className="bg-teal-500 hover:bg-teal-600 text-white font-bold py-2 px-5 rounded-lg transition-colors flex items-center justify-center mx-auto gap-2"
+          >
+            <CheckCircleIcon className="w-5 h-5" />
+            Finalizar Dia
+          </button>
+        )}
+      </div>
+
     </div>
   );
 };
+
+const FeedbackSelector: React.FC<{ onSelect: (feedback: string) => void }> = ({ onSelect }) => {
+  const options = ['Foi desafiador', 'Muito bom', 'Precisa de ajustes'];
+  return (
+    <div className="animate-fade-in">
+      <p className="text-gray-300 mb-3 font-semibold">Como foi o treino de hoje?</p>
+      <div className="flex flex-wrap justify-center gap-3">
+        {options.map(opt => (
+          <button
+            key={opt}
+            onClick={() => onSelect(opt)}
+            className="bg-gray-600 hover:bg-gray-500 text-white text-sm py-2 px-4 rounded-lg transition-colors"
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 
 const ExerciseRow: React.FC<{ exercise: Exercise }> = ({ exercise }) => (
   <tr className="bg-gray-800 hover:bg-gray-700/50 transition-colors">
@@ -291,5 +429,11 @@ const ArrowLeftIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
   </svg>
 );
+const CheckCircleIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </svg>
+);
+
 
 export default WorkoutDisplay;

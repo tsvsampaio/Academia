@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { WorkoutPreferences, FitnessGoal, ExperienceLevel, Equipment, WorkoutDuration, Gender, DaysPerWeek } from '../types';
 
@@ -54,24 +53,54 @@ const days: { id: DaysPerWeek; label: string }[] = [
 ];
 
 const WorkoutForm: React.FC<WorkoutFormProps> = ({ onSubmit, suggestedGoals = [], gender, onBack }) => {
-  const [preferences, setPreferences] = useState<WorkoutPreferences>({
-    goal: [],
-    level: 'iniciante',
-    equipment: 'peso_corporal',
-    duration: 45,
-    daysPerWeek: 4,
-    gender: gender,
+  const [preferences, setPreferences] = useState<WorkoutPreferences>(() => {
+    const defaults: WorkoutPreferences = {
+        goal: [],
+        level: 'iniciante',
+        equipment: 'peso_corporal',
+        duration: 45,
+        daysPerWeek: 4,
+        gender: gender,
+    };
+    try {
+        const savedPrefsString = localStorage.getItem('workoutPreferences');
+        if (savedPrefsString) {
+            const savedPrefs = JSON.parse(savedPrefsString);
+            // Merge defaults, saved prefs, and ensure the current gender prop is respected.
+            return { ...defaults, ...savedPrefs, gender: gender };
+        }
+    } catch (error) {
+        console.error("Could not load preferences, using defaults.", error);
+    }
+    return defaults;
   });
+  const [isQuickWorkout, setIsQuickWorkout] = useState(false);
 
   useEffect(() => {
     if (suggestedGoals.length > 0) {
       setPreferences(prev => ({ ...prev, goal: suggestedGoals }));
     }
   }, [suggestedGoals]);
+  
+  useEffect(() => {
+    if (isQuickWorkout) {
+        setPreferences(prev => ({
+            ...prev,
+            duration: 30,
+            level: 'iniciante',
+        }));
+    }
+  }, [isQuickWorkout]);
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (preferences.goal.length > 0) {
+      try {
+        localStorage.setItem('workoutPreferences', JSON.stringify(preferences));
+      } catch (error) {
+        console.error("Failed to save preferences to localStorage", error);
+      }
       onSubmit(preferences);
     }
   };
@@ -124,6 +153,20 @@ const WorkoutForm: React.FC<WorkoutFormProps> = ({ onSubmit, suggestedGoals = []
             ))}
           </div>
         </FormSection>
+        
+        <FormSection title="Precisa de algo rápido?">
+            <div className="flex items-center justify-between bg-gray-700/50 rounded-lg p-4">
+                <label htmlFor="quick-workout-toggle" className="font-semibold text-gray-200">
+                    Ativar Treino Rápido
+                    <p className="text-sm text-gray-400 font-normal">Define a duração para 30 min e o nível para iniciante.</p>
+                </label>
+                <ToggleSwitch
+                    id="quick-workout-toggle"
+                    checked={isQuickWorkout}
+                    onChange={() => setIsQuickWorkout(!isQuickWorkout)}
+                />
+            </div>
+        </FormSection>
 
         <FormSection title="2. Qual o seu nível de experiência?">
           <SegmentedControl
@@ -131,6 +174,7 @@ const WorkoutForm: React.FC<WorkoutFormProps> = ({ onSubmit, suggestedGoals = []
             options={levels}
             selectedValue={preferences.level}
             onChange={(value) => handleSelect('level', value as ExperienceLevel)}
+            disabled={isQuickWorkout}
           />
         </FormSection>
 
@@ -158,6 +202,7 @@ const WorkoutForm: React.FC<WorkoutFormProps> = ({ onSubmit, suggestedGoals = []
             options={durations}
             selectedValue={preferences.duration}
             onChange={(value) => handleSelect('duration', value as WorkoutDuration)}
+            disabled={isQuickWorkout}
           />
         </FormSection>
 
@@ -223,11 +268,12 @@ interface SegmentedControlProps<T extends string | number> {
     options: { id: T; label: string }[];
     selectedValue: T;
     onChange: (value: T) => void;
+    disabled?: boolean;
 }
 
-function SegmentedControl<T extends string | number>({ name, options, selectedValue, onChange }: SegmentedControlProps<T>) {
+function SegmentedControl<T extends string | number>({ name, options, selectedValue, onChange, disabled = false }: SegmentedControlProps<T>) {
     return (
-        <div className="flex w-full bg-gray-700 rounded-lg p-1">
+        <div className={`flex w-full bg-gray-700 rounded-lg p-1 transition-opacity ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
             {options.map(({ id, label }) => (
                 <div key={id} className="w-full">
                     <input
@@ -236,12 +282,13 @@ function SegmentedControl<T extends string | number>({ name, options, selectedVa
                         name={name}
                         value={id}
                         checked={selectedValue === id}
-                        onChange={() => onChange(id)}
+                        onChange={() => !disabled && onChange(id)}
                         className="hidden"
+                        disabled={disabled}
                     />
                     <label
                         htmlFor={`${name}-${id}`}
-                        className={`block text-center text-sm font-semibold py-2 px-3 rounded-md cursor-pointer transition-colors duration-300 ${selectedValue === id ? 'bg-cyan-500 text-gray-900 shadow' : 'text-gray-300 hover:bg-gray-600/50'}`}
+                        className={`block text-center text-sm font-semibold py-2 px-3 rounded-md transition-colors duration-300 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${selectedValue === id ? 'bg-cyan-500 text-gray-900 shadow' : 'text-gray-300 hover:bg-gray-600/50'}`}
                     >
                         {label}
                     </label>
@@ -250,5 +297,12 @@ function SegmentedControl<T extends string | number>({ name, options, selectedVa
         </div>
     );
 }
+
+const ToggleSwitch: React.FC<{ id: string, checked: boolean, onChange: () => void }> = ({ id, checked, onChange }) => (
+  <label htmlFor={id} className="relative inline-flex items-center cursor-pointer">
+      <input type="checkbox" id={id} className="sr-only peer" checked={checked} onChange={onChange} />
+      <div className="w-14 h-8 bg-gray-600 rounded-full peer peer-focus:ring-4 peer-focus:ring-cyan-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-1 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-cyan-500"></div>
+  </label>
+);
 
 export default WorkoutForm;

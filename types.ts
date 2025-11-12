@@ -1,4 +1,5 @@
 
+
 export type FitnessGoal = 'ganho_de_massa' | 'perda_de_gordura' | 'resistencia';
 export type ExperienceLevel = 'iniciante' | 'intermediario' | 'avancado';
 export type Equipment = 'peso_corporal' | 'halteres' | 'academia_completa';
@@ -34,4 +35,12 @@ export interface WorkoutDay {
 export interface WorkoutPlan {
   nomeDoPlano: string;
   dias: WorkoutDay[];
+}
+
+export interface WorkoutHistoryEntry {
+  id: string;
+  planName: string;
+  workoutDay: WorkoutDay;
+  feedback: string;
+  completedAt: string; // ISO string
 }
